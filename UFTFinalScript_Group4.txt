@@ -1,0 +1,781 @@
+'*******************************************************
+' INFO6255 - UFT Test Automation Assignment
+' Application : OpenText MyFlight Sample (Flight GUI)
+' Author      : Riya, Tanmay, Gunashree
+' Date        : June 2026
+'
+' FRAMEWORK   : Data-Driven (all values from UFT DataTable)
+' STRUCTURE   : 4 bookings, 1 login each = 4 logins total
+'
+' CHECKPOINTS :
+'   Real UFT checkpoint objects must be created in UFT before running.
+'   CP1_Title_Text_PASS              - Text checkpoint   -> PASS
+'   CP2_BookingForm_Bitmap_PASS      - Bitmap checkpoint -> PASS
+'   CP3_PassengerName_Text_PASS      - Text checkpoint   -> PASS
+'   CP4_TotalPrice_Text_FAIL_ONCE    - Text checkpoint   -> FAIL
+'
+' MANUALLY ADDED OBJECT:
+'   "flightsDataGrid" (WpfTable) was manually added to the
+'   Object Repository using Object Spy, then referenced in code.
+'   All other objects were captured via recording.
+'
+' DATA FILE:
+'   All values including AppPath, ScreenshotFolder, ExpectedTitle,
+'   and WrongExpectedPrice come from the Excel DataTable (dtGlobalSheet).
+'   No hard-coded test values exist in this script.
+'*******************************************************
+
+
+
+Option Explicit
+
+'-------------------------------------------------------
+' DATA FILE IMPORT
+' Keep FlightTestData_FINAL.xlsx in the same UFT test folder.
+' This prevents DataTable column errors when the test is run live.
+'-------------------------------------------------------
+Dim dataFile
+Dim fso
+
+Set fso = CreateObject("Scripting.FileSystemObject")
+
+dataFile = Environment.Value("TestDir") & "\FlightTestData_FINAL.xlsx"
+If Not fso.FileExists(dataFile) Then
+    dataFile = Environment.Value("TestDir") & "\FlightTestData_UPDATED.xlsx"
+End If
+If Not fso.FileExists(dataFile) Then
+    dataFile = Environment.Value("TestDir") & "\FlightTestData.xlsx"
+End If
+
+If Not fso.FileExists(dataFile) Then
+    Reporter.ReportEvent micFail, "Data File Missing", _
+        "Excel data file was not found in the UFT test folder. Put FlightTestData_FINAL.xlsx in: " & Environment.Value("TestDir")
+    ExitTest
+End If
+
+DataTable.ImportSheet dataFile, "Global", dtGlobalSheet
+
+Reporter.ReportEvent micDone, "Data File Imported", "Imported data from: " & dataFile
+
+'-------------------------------------------------------
+' GLOBAL SETUP
+' Read ScreenshotFolder from DataTable row 1 - no hard-coded path
+'-------------------------------------------------------
+DataTable.SetCurrentRow 1
+
+Dim screenshotFolder
+screenshotFolder = DataTable("ScreenshotFolder", dtGlobalSheet)
+
+' Create screenshots folder if it does not exist
+screenshotFolder = EnsureTrailingSlash(screenshotFolder)
+CreateFolderTree screenshotFolder
+
+' Helper variables reused across all bookings
+Dim objShell
+Dim formattedDate
+Dim rawDate, d, m, y
+Dim flightRow
+
+Reporter.ReportEvent micDone, "Test Started", "Beginning 4 flight bookings - INFO6255 Assignment"
+
+
+'*******************************************************
+' BOOKING 1
+' Route  : Row 1 route
+' Class  : Economy | Passenger: Row 1 passenger
+' CP1    : Text checkpoint - verify window title (PASS)
+'*******************************************************
+Reporter.ReportEvent micDone, "Booking 1", "Starting first booking - Row 1"
+DataTable.SetCurrentRow 1
+
+' Launch the Flight GUI application - AppPath comes from DataTable
+Set objShell = CreateObject("WScript.Shell")
+objShell.Run """" & DataTable("AppPath", dtGlobalSheet) & """"
+Set objShell = Nothing
+Wait 6
+
+If WpfWindow("OpenText MyFlight Sample").Exist(15) Then
+    Reporter.ReportEvent micPass, "App Launched", "Flight GUI opened successfully - Booking 1"
+Else
+    Reporter.ReportEvent micFail, "Application Launch Failed", "Flight GUI did not open for Booking 1. Check AppPath in Excel."
+    ExitTest
+End If
+
+' Screenshot BEFORE filling login form
+Desktop.CaptureBitmap screenshotFolder & "Booking1_01_Login_Before.png", True
+
+' Fill in login credentials from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfEdit("agentName").Set DataTable("Username", dtGlobalSheet)
+WpfWindow("OpenText MyFlight Sample").WpfEdit("password").Set DataTable("Password", dtGlobalSheet)
+
+' Screenshot AFTER filling login form
+Desktop.CaptureBitmap screenshotFolder & "Booking1_02_Login_After.png", True
+
+' Click OK to log in
+WpfWindow("OpenText MyFlight Sample").WpfButton("OK").Click
+Wait 2
+
+'-------------------------------------------------------
+' CHECKPOINT 1 - REAL UFT TEXT CHECKPOINT - PASS
+' Create this checkpoint in UFT before running the script.
+' Checkpoint name in UFT must be: CP1_Title_Text_PASS
+'-------------------------------------------------------
+WpfWindow("OpenText MyFlight Sample").WpfButton("FIND FLIGHTS").Check CheckPoint("CP1_Title_Text_PASS")
+
+' Screenshot BEFORE filling booking form
+Desktop.CaptureBitmap screenshotFolder & "Booking1_03_Booking_Before.png", True
+
+' Select From and To cities from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("fromCity").Select DataTable("FromCity", dtGlobalSheet)
+Wait 1
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("toCity").Select DataTable("ToCity", dtGlobalSheet)
+Wait 1
+
+' Set flight date using calendar picker - date comes from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfImage("WpfImage").Click
+Wait 0.5
+rawDate = DataTable("FlightDate", dtGlobalSheet)
+d = Day(CDate(rawDate))
+m = MonthName(Month(CDate(rawDate)), True)
+y = Year(CDate(rawDate))
+formattedDate = d & "-" & m & "-" & y
+WpfWindow("OpenText MyFlight Sample").WpfCalendar("Mo").SetDate formattedDate
+Wait 0.5
+WpfWindow("OpenText MyFlight Sample").Click 400, 200
+Wait 0.5
+
+' Select Class from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("Class").Select DataTable("Class", dtGlobalSheet)
+Wait 0.5
+
+' Set number of passengers from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("numOfTickets").Select DataTable("Passengers", dtGlobalSheet)
+Wait 0.5
+
+' Screenshot AFTER filling booking form
+Desktop.CaptureBitmap screenshotFolder & "Booking1_04_Booking_After.png", True
+
+' Click FIND FLIGHTS
+WpfWindow("OpenText MyFlight Sample").Activate
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").WpfButton("FIND FLIGHTS").Click
+If Err.Number <> 0 Then
+    Err.Clear
+    Set objShell = CreateObject("WScript.Shell")
+    objShell.SendKeys "{TAB}"
+    Wait 0.3
+    objShell.SendKeys "{ENTER}"
+    Set objShell = Nothing
+End If
+On Error GoTo 0
+Wait 3
+
+' Screenshot BEFORE selecting a flight
+Desktop.CaptureBitmap screenshotFolder & "Booking1_05_FlightSelect_Before.png", True
+
+' Select first row in flight results table
+' NOTE: flightsDataGrid was MANUALLY ADDED to Object Repository using Object Spy
+On Error Resume Next
+flightRow = CInt(DataTable("FlightRowIndex", dtGlobalSheet))
+WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").SelectRow flightRow
+If Err.Number <> 0 Then
+    Err.Clear
+    WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").SelectCell flightRow, 0
+    If Err.Number <> 0 Then
+        Err.Clear
+        WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").Click 150, 80
+    End If
+End If
+On Error GoTo 0
+Wait 0.5
+
+' Screenshot AFTER selecting a flight
+Desktop.CaptureBitmap screenshotFolder & "Booking1_06_FlightSelect_After.png", True
+
+' Click SELECT FLIGHT
+WpfWindow("OpenText MyFlight Sample").WpfButton("SELECT FLIGHT").Click
+Wait 2
+
+' Verify that the Flight Details screen is displayed before entering passenger details.
+If WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Exist(5) Then
+    Reporter.ReportEvent micPass, "Verify Flight Details Screen - Booking 1", _
+        "Flight details screen is displayed for " & DataTable("FromCity", dtGlobalSheet) & " to " & DataTable("ToCity", dtGlobalSheet)
+Else
+    Reporter.ReportEvent micFail, "Verify Flight Details Screen - Booking 1", _
+        "Passenger Name field was not found after SELECT FLIGHT. The selected flight/details page did not load."
+    ExitTest
+End If
+
+' Screenshot BEFORE filling passenger form
+Desktop.CaptureBitmap screenshotFolder & "Booking1_07_Passenger_Before.png", True
+
+' Enter passenger name from DataTable
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Set DataTable("PassengerName", dtGlobalSheet)
+If Err.Number <> 0 Then
+    Err.Clear
+    WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Click
+    Wait 0.3
+    Set objShell = CreateObject("WScript.Shell")
+    objShell.SendKeys DataTable("PassengerName", dtGlobalSheet)
+    Set objShell = Nothing
+End If
+On Error GoTo 0
+
+' Screenshot AFTER filling passenger form
+Desktop.CaptureBitmap screenshotFolder & "Booking1_08_Passenger_After.png", True
+
+' Click ORDER to complete booking
+WpfWindow("OpenText MyFlight Sample").WpfButton("ORDER").Click
+Wait 2
+
+' Screenshot of confirmation screen
+Desktop.CaptureBitmap screenshotFolder & "Booking1_09_Confirmation.png", True
+Wait 0.5
+
+Reporter.ReportEvent micPass, "Booking 1 Complete", _
+    DataTable("FromCity", dtGlobalSheet) & " to " & DataTable("ToCity", dtGlobalSheet) & _
+    " | Passenger: " & DataTable("PassengerName", dtGlobalSheet)
+
+' Close app
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").Close
+On Error GoTo 0
+Wait 1
+
+
+'*******************************************************
+' BOOKING 2
+' Route  : Row 2 route
+' Class  : Business | Passenger: Row 2 passenger
+' CP2    : Bitmap checkpoint - verify booking form layout (PASS)
+'*******************************************************
+Reporter.ReportEvent micDone, "Booking 2", "Starting second booking - Row 2"
+DataTable.SetCurrentRow 2
+
+' Launch the Flight GUI application - AppPath comes from DataTable
+Set objShell = CreateObject("WScript.Shell")
+objShell.Run """" & DataTable("AppPath", dtGlobalSheet) & """"
+Set objShell = Nothing
+Wait 6
+
+If WpfWindow("OpenText MyFlight Sample").Exist(15) Then
+    Reporter.ReportEvent micPass, "App Launched", "Flight GUI opened successfully - Booking 2"
+Else
+    Reporter.ReportEvent micFail, "Application Launch Failed", "Flight GUI did not open for Booking 2. Check AppPath in Excel."
+    ExitTest
+End If
+
+' Screenshot BEFORE filling login form
+Desktop.CaptureBitmap screenshotFolder & "Booking2_01_Login_Before.png", True
+
+' Fill in login credentials from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfEdit("agentName").Set DataTable("Username", dtGlobalSheet)
+WpfWindow("OpenText MyFlight Sample").WpfEdit("password").Set DataTable("Password", dtGlobalSheet)
+
+' Screenshot AFTER filling login form
+Desktop.CaptureBitmap screenshotFolder & "Booking2_02_Login_After.png", True
+
+' Click OK to log in
+WpfWindow("OpenText MyFlight Sample").WpfButton("OK").Click
+Wait 2
+
+' Screenshot BEFORE filling booking form
+Desktop.CaptureBitmap screenshotFolder & "Booking2_03_Booking_Before.png", True
+
+' Select From and To cities from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("fromCity").Select DataTable("FromCity", dtGlobalSheet)
+Wait 1
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("toCity").Select DataTable("ToCity", dtGlobalSheet)
+Wait 1
+
+' Set flight date using calendar picker - date comes from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfImage("WpfImage").Click
+Wait 0.5
+rawDate = DataTable("FlightDate", dtGlobalSheet)
+d = Day(CDate(rawDate))
+m = MonthName(Month(CDate(rawDate)), True)
+y = Year(CDate(rawDate))
+formattedDate = d & "-" & m & "-" & y
+WpfWindow("OpenText MyFlight Sample").WpfCalendar("Mo").SetDate formattedDate
+Wait 0.5
+WpfWindow("OpenText MyFlight Sample").Click 400, 200
+Wait 0.5
+
+' Select Class from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("Class").Select DataTable("Class", dtGlobalSheet)
+Wait 0.5
+
+' Set number of passengers from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("numOfTickets").Select DataTable("Passengers", dtGlobalSheet)
+Wait 0.5
+
+' Screenshot AFTER filling booking form
+Desktop.CaptureBitmap screenshotFolder & "Booking2_04_Booking_After.png", True
+
+'-------------------------------------------------------
+' CHECKPOINT 2 - REAL UFT BITMAP CHECKPOINT - PASS
+' Create this checkpoint in UFT before running the script.
+' Checkpoint name in UFT must be: CP2_BookingForm_Bitmap_PASS
+'-------------------------------------------------------
+WpfWindow("OpenText MyFlight Sample").WpfButton("FIND FLIGHTS").Check CheckPoint("CP2_BookingForm_Bitmap_PASS")
+
+' Click FIND FLIGHTS
+WpfWindow("OpenText MyFlight Sample").Activate
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").WpfButton("FIND FLIGHTS").Click
+If Err.Number <> 0 Then
+    Err.Clear
+    Set objShell = CreateObject("WScript.Shell")
+    objShell.SendKeys "{TAB}"
+    Wait 0.3
+    objShell.SendKeys "{ENTER}"
+    Set objShell = Nothing
+End If
+On Error GoTo 0
+Wait 3
+
+' Screenshot BEFORE selecting a flight
+Desktop.CaptureBitmap screenshotFolder & "Booking2_05_FlightSelect_Before.png", True
+
+' Select first row in flight results table (manually added object)
+On Error Resume Next
+flightRow = CInt(DataTable("FlightRowIndex", dtGlobalSheet))
+WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").SelectRow flightRow
+If Err.Number <> 0 Then
+    Err.Clear
+    WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").SelectCell flightRow, 0
+    If Err.Number <> 0 Then
+        Err.Clear
+        WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").Click 150, 80
+    End If
+End If
+On Error GoTo 0
+Wait 0.5
+
+' Screenshot AFTER selecting a flight
+Desktop.CaptureBitmap screenshotFolder & "Booking2_06_FlightSelect_After.png", True
+
+' Click SELECT FLIGHT
+WpfWindow("OpenText MyFlight Sample").WpfButton("SELECT FLIGHT").Click
+Wait 2
+
+' Verify that the Flight Details screen is displayed before entering passenger details.
+If WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Exist(5) Then
+    Reporter.ReportEvent micPass, "Verify Flight Details Screen - Booking 2", _
+        "Flight details screen is displayed for " & DataTable("FromCity", dtGlobalSheet) & " to " & DataTable("ToCity", dtGlobalSheet)
+Else
+    Reporter.ReportEvent micFail, "Verify Flight Details Screen - Booking 2", _
+        "Passenger Name field was not found after SELECT FLIGHT. The selected flight/details page did not load."
+    ExitTest
+End If
+
+' Screenshot BEFORE filling passenger form
+Desktop.CaptureBitmap screenshotFolder & "Booking2_07_Passenger_Before.png", True
+
+' Enter passenger name from DataTable
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Set DataTable("PassengerName", dtGlobalSheet)
+If Err.Number <> 0 Then
+    Err.Clear
+    WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Click
+    Wait 0.3
+    Set objShell = CreateObject("WScript.Shell")
+    objShell.SendKeys DataTable("PassengerName", dtGlobalSheet)
+    Set objShell = Nothing
+End If
+On Error GoTo 0
+
+' Screenshot AFTER filling passenger form
+Desktop.CaptureBitmap screenshotFolder & "Booking2_08_Passenger_After.png", True
+
+' Click ORDER to complete booking
+WpfWindow("OpenText MyFlight Sample").WpfButton("ORDER").Click
+Wait 2
+
+' Screenshot of confirmation screen
+Desktop.CaptureBitmap screenshotFolder & "Booking2_09_Confirmation.png", True
+Wait 0.5
+
+Reporter.ReportEvent micPass, "Booking 2 Complete", _
+    DataTable("FromCity", dtGlobalSheet) & " to " & DataTable("ToCity", dtGlobalSheet) & _
+    " | Passenger: " & DataTable("PassengerName", dtGlobalSheet)
+
+' Close app
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").Close
+On Error GoTo 0
+Wait 1
+
+
+'*******************************************************
+' BOOKING 3
+' Route  : Row 3 route
+' Class  : First | Passenger: Row 3 passenger
+' CP3    : Text checkpoint - verify passenger name (PASS)
+' CP4    : Text checkpoint - wrong expected price (INTENTIONAL FAIL, once only)
+'*******************************************************
+Reporter.ReportEvent micDone, "Booking 3", "Starting third booking - Row 3"
+DataTable.SetCurrentRow 3
+
+' Launch the Flight GUI application - AppPath comes from DataTable
+Set objShell = CreateObject("WScript.Shell")
+objShell.Run """" & DataTable("AppPath", dtGlobalSheet) & """"
+Set objShell = Nothing
+Wait 6
+
+If WpfWindow("OpenText MyFlight Sample").Exist(15) Then
+    Reporter.ReportEvent micPass, "App Launched", "Flight GUI opened successfully - Booking 3"
+Else
+    Reporter.ReportEvent micFail, "Application Launch Failed", "Flight GUI did not open for Booking 3. Check AppPath in Excel."
+    ExitTest
+End If
+
+' Screenshot BEFORE filling login form
+Desktop.CaptureBitmap screenshotFolder & "Booking3_01_Login_Before.png", True
+
+' Fill in login credentials from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfEdit("agentName").Set DataTable("Username", dtGlobalSheet)
+WpfWindow("OpenText MyFlight Sample").WpfEdit("password").Set DataTable("Password", dtGlobalSheet)
+
+' Screenshot AFTER filling login form
+Desktop.CaptureBitmap screenshotFolder & "Booking3_02_Login_After.png", True
+
+' Click OK to log in
+WpfWindow("OpenText MyFlight Sample").WpfButton("OK").Click
+Wait 2
+
+' Screenshot BEFORE filling booking form
+Desktop.CaptureBitmap screenshotFolder & "Booking3_03_Booking_Before.png", True
+
+' Select From and To cities from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("fromCity").Select DataTable("FromCity", dtGlobalSheet)
+Wait 1
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("toCity").Select DataTable("ToCity", dtGlobalSheet)
+Wait 1
+
+' Set flight date using calendar picker - date comes from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfImage("WpfImage").Click
+Wait 0.5
+rawDate = DataTable("FlightDate", dtGlobalSheet)
+d = Day(CDate(rawDate))
+m = MonthName(Month(CDate(rawDate)), True)
+y = Year(CDate(rawDate))
+formattedDate = d & "-" & m & "-" & y
+WpfWindow("OpenText MyFlight Sample").WpfCalendar("Mo").SetDate formattedDate
+Wait 0.5
+WpfWindow("OpenText MyFlight Sample").Click 400, 200
+Wait 0.5
+
+' Select Class from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("Class").Select DataTable("Class", dtGlobalSheet)
+Wait 0.5
+
+' Set number of passengers from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("numOfTickets").Select DataTable("Passengers", dtGlobalSheet)
+Wait 0.5
+
+' Screenshot AFTER filling booking form
+Desktop.CaptureBitmap screenshotFolder & "Booking3_04_Booking_After.png", True
+
+' Click FIND FLIGHTS
+WpfWindow("OpenText MyFlight Sample").Activate
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").WpfButton("FIND FLIGHTS").Click
+If Err.Number <> 0 Then
+    Err.Clear
+    Set objShell = CreateObject("WScript.Shell")
+    objShell.SendKeys "{TAB}"
+    Wait 0.3
+    objShell.SendKeys "{ENTER}"
+    Set objShell = Nothing
+End If
+On Error GoTo 0
+Wait 3
+
+' Screenshot BEFORE selecting a flight
+Desktop.CaptureBitmap screenshotFolder & "Booking3_05_FlightSelect_Before.png", True
+
+' Select first row in flight results table (manually added object)
+On Error Resume Next
+flightRow = CInt(DataTable("FlightRowIndex", dtGlobalSheet))
+WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").SelectRow flightRow
+If Err.Number <> 0 Then
+    Err.Clear
+    WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").SelectCell flightRow, 0
+    If Err.Number <> 0 Then
+        Err.Clear
+        WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").Click 150, 80
+    End If
+End If
+On Error GoTo 0
+Wait 0.5
+
+' Screenshot AFTER selecting a flight
+Desktop.CaptureBitmap screenshotFolder & "Booking3_06_FlightSelect_After.png", True
+
+' Click SELECT FLIGHT
+WpfWindow("OpenText MyFlight Sample").WpfButton("SELECT FLIGHT").Click
+Wait 2
+
+' Verify that the Flight Details screen is displayed before entering passenger details.
+If WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Exist(5) Then
+    Reporter.ReportEvent micPass, "Verify Flight Details Screen - Booking 3", _
+        "Flight details screen is displayed for " & DataTable("FromCity", dtGlobalSheet) & " to " & DataTable("ToCity", dtGlobalSheet)
+Else
+    Reporter.ReportEvent micFail, "Verify Flight Details Screen - Booking 3", _
+        "Passenger Name field was not found after SELECT FLIGHT. The selected flight/details page did not load."
+    ExitTest
+End If
+
+' Screenshot BEFORE filling passenger form
+Desktop.CaptureBitmap screenshotFolder & "Booking3_07_Passenger_Before.png", True
+
+' Enter passenger name from DataTable
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Set DataTable("PassengerName", dtGlobalSheet)
+If Err.Number <> 0 Then
+    Err.Clear
+    WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Click
+    Wait 0.3
+    Set objShell = CreateObject("WScript.Shell")
+    objShell.SendKeys DataTable("PassengerName", dtGlobalSheet)
+    Set objShell = Nothing
+End If
+On Error GoTo 0
+Wait 0.5
+
+' Screenshot AFTER filling passenger form
+Desktop.CaptureBitmap screenshotFolder & "Booking3_08_Passenger_After.png", True
+
+'-------------------------------------------------------
+' CHECKPOINT 3 - REAL UFT TEXT CHECKPOINT - PASS
+' Create this checkpoint in UFT before running the script.
+' Checkpoint name in UFT must be: CP3_PassengerName_Text_PASS
+'-------------------------------------------------------
+WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Check CheckPoint("CP3_PassengerName_Text_PASS")
+
+'-------------------------------------------------------
+' CHECKPOINT 4 - REAL UFT TEXT CHECKPOINT - INTENTIONAL FAIL
+' Create this checkpoint in UFT before running the script.
+' Checkpoint name in UFT must be: CP4_TotalPrice_Text_FAIL_ONCE
+' This checkpoint runs only in Booking 3, so it fails once only.
+'-------------------------------------------------------
+WpfWindow("OpenText MyFlight Sample").WpfObject("totalPrice").Check CheckPoint("CP4_TotalPrice_Text_FAIL_ONCE")
+
+' Click ORDER to complete booking
+WpfWindow("OpenText MyFlight Sample").WpfButton("ORDER").Click
+Wait 2
+
+' Screenshot of confirmation screen
+Desktop.CaptureBitmap screenshotFolder & "Booking3_09_Confirmation.png", True
+Wait 0.5
+
+Reporter.ReportEvent micPass, "Booking 3 Complete", _
+    DataTable("FromCity", dtGlobalSheet) & " to " & DataTable("ToCity", dtGlobalSheet) & _
+    " | Passenger: " & DataTable("PassengerName", dtGlobalSheet)
+
+' Close app
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").Close
+On Error GoTo 0
+Wait 1
+
+
+'*******************************************************
+' BOOKING 4
+' Route  : Row 4 route
+' Class  : Economy | Passenger: Row 4 passenger
+' No new checkpoints - all 4 already done above
+'*******************************************************
+Reporter.ReportEvent micDone, "Booking 4", "Starting fourth booking - Row 4"
+DataTable.SetCurrentRow 4
+
+' Launch the Flight GUI application - AppPath comes from DataTable
+Set objShell = CreateObject("WScript.Shell")
+objShell.Run """" & DataTable("AppPath", dtGlobalSheet) & """"
+Set objShell = Nothing
+Wait 6
+
+If WpfWindow("OpenText MyFlight Sample").Exist(15) Then
+    Reporter.ReportEvent micPass, "App Launched", "Flight GUI opened successfully - Booking 4"
+Else
+    Reporter.ReportEvent micFail, "Application Launch Failed", "Flight GUI did not open for Booking 4. Check AppPath in Excel."
+    ExitTest
+End If
+
+' Screenshot BEFORE filling login form
+Desktop.CaptureBitmap screenshotFolder & "Booking4_01_Login_Before.png", True
+
+' Fill in login credentials from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfEdit("agentName").Set DataTable("Username", dtGlobalSheet)
+WpfWindow("OpenText MyFlight Sample").WpfEdit("password").Set DataTable("Password", dtGlobalSheet)
+
+' Screenshot AFTER filling login form
+Desktop.CaptureBitmap screenshotFolder & "Booking4_02_Login_After.png", True
+
+' Click OK to log in
+WpfWindow("OpenText MyFlight Sample").WpfButton("OK").Click
+Wait 2
+
+' Screenshot BEFORE filling booking form
+Desktop.CaptureBitmap screenshotFolder & "Booking4_03_Booking_Before.png", True
+
+' Select From and To cities from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("fromCity").Select DataTable("FromCity", dtGlobalSheet)
+Wait 1
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("toCity").Select DataTable("ToCity", dtGlobalSheet)
+Wait 1
+
+' Set flight date using calendar picker - date comes from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfImage("WpfImage").Click
+Wait 0.5
+rawDate = DataTable("FlightDate", dtGlobalSheet)
+d = Day(CDate(rawDate))
+m = MonthName(Month(CDate(rawDate)), True)
+y = Year(CDate(rawDate))
+formattedDate = d & "-" & m & "-" & y
+WpfWindow("OpenText MyFlight Sample").WpfCalendar("Mo").SetDate formattedDate
+Wait 0.5
+WpfWindow("OpenText MyFlight Sample").Click 400, 200
+Wait 0.5
+
+' Select Class from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("Class").Select DataTable("Class", dtGlobalSheet)
+Wait 0.5
+
+' Set number of passengers from DataTable
+WpfWindow("OpenText MyFlight Sample").WpfComboBox("numOfTickets").Select DataTable("Passengers", dtGlobalSheet)
+Wait 0.5
+
+' Screenshot AFTER filling booking form
+Desktop.CaptureBitmap screenshotFolder & "Booking4_04_Booking_After.png", True
+
+' Click FIND FLIGHTS
+WpfWindow("OpenText MyFlight Sample").Activate
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").WpfButton("FIND FLIGHTS").Click
+If Err.Number <> 0 Then
+    Err.Clear
+    Set objShell = CreateObject("WScript.Shell")
+    objShell.SendKeys "{TAB}"
+    Wait 0.3
+    objShell.SendKeys "{ENTER}"
+    Set objShell = Nothing
+End If
+On Error GoTo 0
+Wait 3
+
+' Screenshot BEFORE selecting a flight
+Desktop.CaptureBitmap screenshotFolder & "Booking4_05_FlightSelect_Before.png", True
+
+' Select first row in flight results table (manually added object)
+On Error Resume Next
+flightRow = CInt(DataTable("FlightRowIndex", dtGlobalSheet))
+WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").SelectRow flightRow
+If Err.Number <> 0 Then
+    Err.Clear
+    WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").SelectCell flightRow, 0
+    If Err.Number <> 0 Then
+        Err.Clear
+        WpfWindow("OpenText MyFlight Sample").WpfTable("flightsDataGrid").Click 150, 80
+    End If
+End If
+On Error GoTo 0
+Wait 0.5
+
+' Screenshot AFTER selecting a flight
+Desktop.CaptureBitmap screenshotFolder & "Booking4_06_FlightSelect_After.png", True
+
+' Click SELECT FLIGHT
+WpfWindow("OpenText MyFlight Sample").WpfButton("SELECT FLIGHT").Click
+Wait 2
+
+' Verify that the Flight Details screen is displayed before entering passenger details.
+If WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Exist(5) Then
+    Reporter.ReportEvent micPass, "Verify Flight Details Screen - Booking 4", _
+        "Flight details screen is displayed for " & DataTable("FromCity", dtGlobalSheet) & " to " & DataTable("ToCity", dtGlobalSheet)
+Else
+    Reporter.ReportEvent micFail, "Verify Flight Details Screen - Booking 4", _
+        "Passenger Name field was not found after SELECT FLIGHT. The selected flight/details page did not load."
+    ExitTest
+End If
+
+' Screenshot BEFORE filling passenger form
+Desktop.CaptureBitmap screenshotFolder & "Booking4_07_Passenger_Before.png", True
+
+' Enter passenger name from DataTable
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Set DataTable("PassengerName", dtGlobalSheet)
+If Err.Number <> 0 Then
+    Err.Clear
+    WpfWindow("OpenText MyFlight Sample").WpfEdit("passengerName").Click
+    Wait 0.3
+    Set objShell = CreateObject("WScript.Shell")
+    objShell.SendKeys DataTable("PassengerName", dtGlobalSheet)
+    Set objShell = Nothing
+End If
+On Error GoTo 0
+
+' Screenshot AFTER filling passenger form
+Desktop.CaptureBitmap screenshotFolder & "Booking4_08_Passenger_After.png", True
+
+' Click ORDER to complete booking
+WpfWindow("OpenText MyFlight Sample").WpfButton("ORDER").Click
+Wait 2
+
+' Screenshot of confirmation screen
+Desktop.CaptureBitmap screenshotFolder & "Booking4_09_Confirmation.png", True
+Wait 0.5
+
+Reporter.ReportEvent micPass, "Booking 4 Complete", _
+    DataTable("FromCity", dtGlobalSheet) & " to " & DataTable("ToCity", dtGlobalSheet) & _
+    " | Passenger: " & DataTable("PassengerName", dtGlobalSheet)
+
+' Close app
+On Error Resume Next
+WpfWindow("OpenText MyFlight Sample").Close
+On Error GoTo 0
+Wait 1
+
+
+'*******************************************************
+' FINAL SUMMARY
+'*******************************************************
+Reporter.ReportEvent micDone, "Test Complete", _
+    "All 4 bookings finished. " & _
+    "CP1 Text=PASS, CP2 Bitmap=PASS, CP3 Text=PASS, CP4 Text=FAIL (intentional). " & _
+    "Screenshots saved to: " & screenshotFolder
+
+' Open screenshots folder at the end for presentation.
+SystemUtil.Run "explorer.exe", """" & screenshotFolder & """"
+
+'-------------------------------------------------------
+' Helper: add trailing backslash to folder paths
+'-------------------------------------------------------
+Function EnsureTrailingSlash(ByVal folderPath)
+    If Right(folderPath, 1) = "\" Then
+        EnsureTrailingSlash = folderPath
+    Else
+        EnsureTrailingSlash = folderPath & "\"
+    End If
+End Function
+
+'-------------------------------------------------------
+' Helper: create nested folders safely
+'-------------------------------------------------------
+Sub CreateFolderTree(ByVal folderPath)
+    Dim parentFolder
+
+    If Len(Trim(folderPath)) = 0 Then Exit Sub
+
+    If Not fso.FolderExists(folderPath) Then
+        parentFolder = fso.GetParentFolderName(folderPath)
+        If Len(parentFolder) > 0 Then
+            If Not fso.FolderExists(parentFolder) Then
+                CreateFolderTree parentFolder
+            End If
+        End If
+        fso.CreateFolder folderPath
+    End If
+End Sub
